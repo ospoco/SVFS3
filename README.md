@@ -40,7 +40,7 @@ SVFS now distinguishes between strings/bytes and will transparently encode/decod
 
 This code outputs:
 
-    ['\n', 'This is a\n', 'multiline\n', 'text file']
+    ['This is a\n', 'multiline\n', 'text file']
 
 Binary files work similarly:
 
