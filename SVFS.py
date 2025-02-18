@@ -18,6 +18,8 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 
+# Updated and ported to Python 3 by Van Lindberg, 2025
+
 import os, sys, struct, datetime, time, io, weakref
 
 
