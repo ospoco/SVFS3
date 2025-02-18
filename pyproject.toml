@@ -1,0 +1,14 @@
+[project]
+name = "svfs3"
+version = "3.0.0"
+description = "A port of SVFS version 2 to Python 3"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography>=44.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+]
