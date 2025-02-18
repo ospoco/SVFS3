@@ -44,13 +44,13 @@ This code outputs:
 
 Binary files work similarly:
 
-# Open up a file in binary mode. 
-with s.open('binary_file','wb') as binary_file: 
-    # Passing 'b' as part of the mode parameter sets binary mode
-    binary_file.write(b'Some bytes')
-
-b_file = s.open('binary_file', 'rb')
-b_file.read()
+    # Open up a file in binary mode. 
+    with s.open('binary_file','wb') as binary_file: 
+        # Passing 'b' as part of the mode parameter sets binary mode
+        binary_file.write(b'Some bytes')
+    
+    b_file = s.open('binary_file', 'rb')
+    b_file.read()
 
 Outputs:
 
