@@ -3,6 +3,7 @@ name = "svfs3"
 version = "3.0.0"
 description = "A port of SVFS version 2 to Python 3"
 readme = "README.md"
+license = "GPL-3.0"
 requires-python = ">=3.9"
 dependencies = [
     "cryptography>=44.0.1",
