@@ -33,9 +33,7 @@ SVFS now distinguishes between strings/bytes and will transparently encode/decod
     # Open up a file in text mode. 
     with s.open('text_file','w', encoding='utf8') as text_file: 
         # If no encoding is given, defaults to 'utf-8'
-        text_file.write("""This is a
-multiline
-text file""") # Write string into file, encoded as utf-8
+        text_file.write("""This is a\nmultiline\ntext file""") # Write string into file, encoded as utf-8
 
     t_file = s.open('text_file','r') # Open same file for reading
     t_file.readlines()
