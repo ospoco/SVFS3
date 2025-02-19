@@ -8,7 +8,7 @@ SVFS allows to create virtual filesystem inside file on real filesystem. It can 
 
 Following code creates SVFS, opens file in it, writes string and reads it back:
 
-from SVFS import SVFS #Import SVFS class
+from svfs3 import SVFS #Import SVFS class
 
 s = SVFS() # Create instance of SVFS class
 s.CreateSVFS('test.svfs','testvolume',100,100,100) # Create SVFS with 100 inodes and 100 blocks of 100 bytes.

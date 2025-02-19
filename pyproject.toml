@@ -1,19 +1,20 @@
+
+
 [build-system]
-# A list of packages that are needed to build your package:
-requires = ["setuptools"] # REQUIRED if [build-system] table is used
-# The name of the Python object that frontends will use to perform the build:
-build-backend = "setuptools.build_meta" # If not defined, then legacy behavior can happen.
+requires = ["hatchling"] 
+build-backend = "hatchling.build" 
 
 [project]
 name = "svfs3"
 version = "3.0.0"
 requires-python = ">=3.9"
+license = "GPL-3.0"
 dependencies = [
     "cryptography>=44.0.1"
 ]
 description = "Multi-purpose virtual file system inside single file (ported to Python 3)"
 readme = "README.md"
-license = {file = "LICENSE"}
+
 authors = [
   {name = "Andrew Stolberg", email = "andrewstolberg@gmail.com"},
   {name = "Van Lindberg", email = "van.lindberg@gmail.com"},
@@ -44,6 +45,10 @@ Repository = "https://github.com/ospoco/SVFS3.git"
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "setuptools>=75.8.0",
     "twine>=6.1.0",
     "validate-pyproject>=0.23",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/svfs3"]
