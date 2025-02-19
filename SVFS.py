@@ -21,7 +21,7 @@
 # Updated and ported to Python 3 by Van Lindberg, 2025
 
 import os, sys, struct, datetime, time, io, weakref
-
+from cryptography.fernet import Fernet
 
 class SVFS(object):
 
@@ -1901,7 +1901,6 @@ class SVFS(object):
             mode = 6
         else:
             raise ValueError("Bad mode")
-        # ...existing code...
         if path in ["", "/"]:
             path = self.ftbl[0].fnm
         fref = self.SVFSfile()
@@ -1911,7 +1910,6 @@ class SVFS(object):
         fref._closed = False
         fref._parent = self
         fref._encoding = encoding  # Now correctly set for text mode
-        # ...existing code...
         fref._info = self.followpath(self.ftbl, path)
         fref._fentry = fref._info
         frec = fref._info
@@ -2314,3 +2312,117 @@ class SVFS(object):
             self.CloseSVFS()
             raise self.SVFSIOError(6, "Read/Write failed")
         return 0
+
+
+class EncryptedFile(SVFSfile):
+        def __init__(self, fernet):
+            self.__fernet = fernet
+            super().__init__()
+
+        def write(self, str_):
+            encrypted_str = self.__fernet.encrypt(str_)
+            super().write(encrypted_str)
+
+        def read(self, size=-1):
+            encrypted_str = super().read(size)
+            return self.__fernet.decrypt(encrypted_str)
+
+class EncryptedSVFS(SVFS):
+    def __init__(self, key):
+        self.__key = key
+        self.__fernet = Fernet(key)
+        super().__init__()
+        self.SVFSfile = EncryptedFile
+
+    def _fopenback(self, path, mode, sf=False, encoding=None):
+        # Force default encoding in text mode
+        if encoding is None and "b" not in mode:
+            encoding = "utf-8"
+        is_binary = "b" in mode
+        if is_binary:
+            encoding = None
+        if mode in ("r", "rb"):
+            mode = 1
+        elif mode in ("r+", "r+b", "rb+"):
+            mode = 2
+        elif mode in ("w", "wb"):
+            mode = 3
+        elif mode in ("w+", "w+b", "wb+"):
+            mode = 4
+        elif mode in ("a", "ab"):
+            mode = 5
+        elif mode in ("a+", "a+b", "ab+"):
+            mode = 6
+        else:
+            raise ValueError("Bad mode")
+        if path in ["", "/"]:
+            path = self.ftbl[0].fnm
+        fref = self.SVFSfile(self.__fernet)
+        fref._mode = mode
+        fref._path = path
+        fref._pos = 0
+        fref._closed = False
+        fref._parent = self
+        fref._encoding = encoding  # Now correctly set for text mode
+        fref._info = self.followpath(self.ftbl, path)
+        fref._fentry = fref._info
+        frec = fref._info
+        self.cleanupweak()
+        for i in self.files:
+            nfpth = i()._fentry
+            if nfpth != -1 and fref._info == nfpth and not i()._closed:
+                raise self.SVFSError(
+                    17, "Only one instance of file can be opened at same time"
+                )
+        created = False
+        if fref._info == -1:
+            if mode in (3, 4, 5, 6):
+                try:
+                    self._fcreateback(path, sf)
+                except:
+                    fref = None
+                    raise self.SVFSError(8, "Couldn't create file")
+                created = True
+                fref._info = self.followpath(self.ftbl, path)
+                frec = fref._info
+                fref._fentry = frec
+                if fref._info == -1:
+                    fref = None
+                    raise self.SVFSError(8, "Couldn't create file")
+            else:
+                fref = None
+                raise self.SVFSError(3, "No such file or directory")
+        fref._info = self.ftbl[fref._info]
+        fref._info.ats = time.mktime(datetime.datetime.now().timetuple())
+        if sf:
+            if fref._info.typ not in (1, 3):
+                fref = None
+                raise self.SVFSError(3, "No such file or directory")
+        elif sf == 2:
+            if fref._info.typ != 3:
+                fref = None
+                raise self.SVFSError(3, "No such file or directory")
+        else:
+            if fref._info.typ != 1:
+                fref = None
+                raise self.SVFSError(3, "No such file or directory")
+        if fref._info.fsz == 0:
+            fref._cchain = []
+        else:
+            try:
+                fref._cchain = self.getclusterchain(self.cmap, fref._info.fcl)
+            except:
+                fref = None
+                raise ValueError("Bad cluster chain")
+        if mode in (3, 4) and not created:
+            try:
+                fref.truncate(0)
+            except:
+                fref = None
+                raise self.SVFSIOError(4, "Failed to truncate file")
+        if mode in (5, 6):
+            fref._pos = fref._info.fsz
+        self.seekftbln(self.svfs, frec)
+        self.ftbl[frec].tofile(self.svfs)
+        self.files.append(weakref.ref(fref))
+        return fref
