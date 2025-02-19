@@ -1,3 +1,9 @@
+[build-system]
+# A list of packages that are needed to build your package:
+requires = ["setuptools"] # REQUIRED if [build-system] table is used
+# The name of the Python object that frontends will use to perform the build:
+build-backend = "setuptools.build_meta" # If not defined, then legacy behavior can happen.
+
 [project]
 name = "svfs3"
 version = "3.0.0"
@@ -7,7 +13,7 @@ dependencies = [
 ]
 description = "Multi-purpose virtual file system inside single file (ported to Python 3)"
 readme = "README.md"
-license = "GPL-3.0-or-later"
+license = {file = "LICENSE"}
 authors = [
   {name = "Andrew Stolberg", email = "andrewstolberg@gmail.com"},
   {name = "Van Lindberg", email = "van.lindberg@gmail.com"},
@@ -20,9 +26,8 @@ classifiers = [
         "Development Status :: 4 - Beta",
         "Environment :: Other Environment",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: GNU General Public License v3 (GPL-3.0)",
         "Operating System :: OS Independent",
-        "Programming Language :: Python",
+        "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
@@ -40,4 +45,5 @@ Repository = "https://github.com/ospoco/SVFS3.git"
 dev = [
     "black>=25.1.0",
     "twine>=6.1.0",
+    "validate-pyproject>=0.23",
 ]

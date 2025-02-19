@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 # SVFS 2.0 - Simple Virtual File System
 # Both simple and powerful virtual file system, written in pure python.
 #
@@ -22,6 +24,24 @@
 
 import os, sys, struct, datetime, time, io, weakref, base64
 from cryptography.fernet import Fernet
+
+__all__ = ["SVFS", "EncryptedSVFS", "SVFSfile", "Encryptedfile", "SVFSError", "SVFSIOError"]
+
+class SVFSError(Exception):
+    def __init__(self, code, msg):
+        self.code = code
+        self.msg = msg
+
+    def __str__(self):
+        return "[Errno " + str(self.code) + "] " + self.msg
+
+class SVFSIOError(Exception):
+    def __init__(self, code, msg):
+        self.code = code
+        self.msg = msg
+
+    def __str__(self):
+        return "[Errno " + str(self.code) + "] " + self.msg
 
 class SVFSfile(object):
 
@@ -555,22 +575,6 @@ class SVFSfile(object):
         return iter(self)
 
 class SVFS(object):
-
-    class SVFSError(Exception):
-        def __init__(self, code, msg):
-            self.code = code
-            self.msg = msg
-
-        def __str__(self):
-            return "[Errno " + str(self.code) + "] " + self.msg
-
-    class SVFSIOError(Exception):
-        def __init__(self, code, msg):
-            self.code = code
-            self.msg = msg
-
-        def __str__(self):
-            return "[Errno " + str(self.code) + "] " + self.msg
 
     class Identifier(object):
 
@@ -2315,7 +2319,7 @@ class SVFS(object):
         return 0
 
 
-class EncryptedFile(SVFSfile):
+class Encryptedfile(SVFSfile):
         def __init__(self, fernet):
             self.__fernet = fernet
             super().__init__()
@@ -2335,7 +2339,7 @@ class EncryptedSVFS(SVFS):
         self.__key = self._prepare_key(key)
         self.__fernet = Fernet(self.__key)
         super().__init__()
-        self.SVFSfile = EncryptedFile
+        self.SVFSfile = Encryptedfile
 
     def _prepare_key(self, key):
         if len(key) < 32: raise ValueError("Key must be at least 32 bytes long")
