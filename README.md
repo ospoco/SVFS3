@@ -55,3 +55,22 @@ Binary files work similarly:
 Outputs:
 
     b'Some bytes'
+
+## Encrypted Files
+
+Another update is the availability of encrypted files. Example:
+
+    s = EncryptedSVFS('keytext-must-be-at-least-32-bytes-long') 
+    # Create instance of EncryptedSVFS class, pass in encryption key, must be at least 32 bytes long
+    s.CreateSVFS('encrypted.svfs','testvolume',100,100,100) 
+    # Create SVFS with 100 inodes and 100 blocks of 100 bytes.
+    s.OpenSVFS('encrypted.svfs') # Open created SVFS
+    with s.open('testfile','w') as file: # Create and open new file for writing in SVFS. Contents of this file will be encrypted
+        file.write('write test') # Write string into file
+
+Now the contents of "testfile" are encrypted on disk.
+
+    t = s.open('testfile','r') # Open same file for reading
+    print(t.read()) # Read entire file and print data, things are transparently decrypted
+    t.close() # Close file
+    s.CloseSVFS() # Close SVFSf
