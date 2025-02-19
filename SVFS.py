@@ -20,8 +20,539 @@
 
 # Updated and ported to Python 3 by Van Lindberg, 2025
 
-import os, sys, struct, datetime, time, io, weakref
+import os, sys, struct, datetime, time, io, weakref, base64
 from cryptography.fernet import Fernet
+
+class SVFSfile(object):
+
+    def __init__(self):
+        self._path = ""
+        self._mode = 0
+        self._pos = 0
+        self._info = None
+        self._cchain = None
+        self._encoding = None
+        self._errors = None
+        self._newlines = None
+        self._softspace = 0
+        self._parent = None
+        self._closed = None
+        self._fentry = None
+
+    def close(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        self._closed = True
+        return 0
+
+    @property
+    def closed(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        return self._closed
+
+    @property
+    def encoding(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        return self._encoding
+
+    @property
+    def errors(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        return self._errors
+
+    @property
+    def name(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        return self._path
+
+    @property
+    def newlines(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        return self._newlines
+
+    @property
+    def softspace(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        return self._softspace
+
+    @softspace.setter
+    def softspace(self, value):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if not isinstance(value, int):
+            raise ValueError("Not an integer")
+        self._softspace = value
+
+    @property
+    def mode(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._mode == 1:
+            return "rb"
+        if self._mode == 2:
+            return "rb+"
+        if self._mode == 3:
+            return "wb"
+        if self._mode == 4:
+            return "wb+"
+        if self._mode == 5:
+            return "ab"
+        if self._mode == 6:
+            return "ab+"
+        self._mode = 1
+        return "rb"
+
+    def truncate(self, size=-1):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if self._mode not in (2, 3, 4, 5, 6):
+            raise self._parent.SVFSIOError(1, "File not open for writing")
+        if size < 0:
+            size = self._pos
+        try:
+            chg = []
+            if self._info.fsz <= size:
+                return 0
+            count = size // self._parent.meta.csz
+            if size % self._parent.meta.csz > 0:
+                count += 1
+            cchg = False
+            while len(self._cchain) > count:
+                cchg = True
+                if len(self._cchain) > 1:
+                    self._parent.cmap[self._cchain[len(self._cchain) - 1]].val = 0
+                    self._parent.cmap[self._cchain[len(self._cchain) - 2]].val = 1
+                    chg.append(self._cchain[len(self._cchain) - 1])
+                    chg.append(self._cchain[len(self._cchain) - 2])
+                    del self._cchain[len(self._cchain) - 1]
+                else:
+                    self._parent.cmap[self._cchain[len(self._cchain) - 1]].val = 0
+                    chg.append(self._cchain[len(self._cchain) - 1])
+                    del self._cchain[len(self._cchain) - 1]
+                    self._info.fcl = 0
+            self._info.fsz = size
+            index = self._fentry
+            self._parent.seekftbln(self._parent.svfs, index)
+            self._parent.ftbl[index].tofile(self._parent.svfs)
+            if cchg:
+                chg = set(chg)
+                self._parent.updateclustermap(
+                    self._parent.svfs, self._parent.meta, self._parent.cmap, chg
+                )
+            return 0
+        except:
+            raise RuntimeError("Unknown error")
+
+    def flush(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return 0
+
+    def fileno(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return self._fentry
+
+    def isatty(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return False
+
+    def tell(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return self._pos
+
+    def seek(self, offset, whence=0):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if whence == 0:
+            if offset >= 0:
+                self._pos = offset
+                return 0
+            else:
+                raise self._parent.SVFSIOError(0, "Negative seek offset")
+        elif whence == 1:
+            if self._pos + offset >= 0:
+                self._pos += offset
+                return 0
+            else:
+                raise self._parent.SVFSIOError(0, "Negative seek offset")
+        elif whence == 2:
+            if self._info.fsz + offset >= 0:
+                self._pos += self._info.fsz + offset
+                return 0
+            else:
+                raise self._parent.SVFSIOError(0, "Negative seek offset")
+        raise ValueError("Bad argument")
+
+    def write(self, str_):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if self._mode not in (2, 3, 4, 5, 6):
+            raise self._parent.SVFSIOError(1, "File not open for writing")
+        if self._mode in (5, 6):
+            self._pos = self._info.fsz
+        if isinstance(str_, str):
+            enc = self._encoding if self._encoding is not None else "utf-8"
+            str_ = str_.encode(enc)
+        if not isinstance(str_, (bytes, bytearray)):
+            raise ValueError("Buffer error")
+        chg = []
+        wbuf = len(str_)
+        clus = 0
+        count = wbuf
+        wbufd = count
+        fsz = self._info.fsz
+        nfsz = self._pos + count
+        if nfsz > fsz:
+            fsz = nfsz
+        clusi = self._pos // self._parent.meta.csz
+        cluso = self._pos % self._parent.meta.csz
+        script = []
+        if fsz % self._parent.meta.csz > 0:
+            tmp2 = True
+        else:
+            tmp2 = False
+        if len(self._cchain) < ((fsz // self._parent.meta.csz) + tmp2):
+            stats = self._parent.getsvfsstats(
+                self._parent.meta, self._parent.ftbl, self._parent.cmap
+            )
+            if stats.clusterfree < (
+                ((fsz // self._parent.meta.csz) + tmp2) - len(self._cchain)
+            ):
+                raise self._parent.SVFSError(
+                    9, "Not enough free disk space to perform operation"
+                )
+            else:
+                if (len(self._cchain)) > 0:
+                    tmp = ((fsz // self._parent.meta.csz) + tmp2) - (
+                        len(self._cchain)
+                    )
+                else:
+                    tmp = (fsz // self._parent.meta.csz) + tmp2
+                while tmp > 0:
+                    tmp -= 1
+                    script.append((2,))
+        script.append((1, clusi, cluso))
+        recl = self._parent.meta.csz - cluso
+        if recl > count:
+            recl = count
+        count -= recl
+        pbuf = 0
+        script.append((0, pbuf, recl))
+        pbuf += recl
+        while count > 0:
+            clus += 1
+            script.append((1, clusi + clus, 0))
+            if count >= self._parent.meta.csz:
+                recl = self._parent.meta.csz
+            elif count < self._parent.meta.csz:
+                recl = fsz % self._parent.meta.csz
+            elif count > self._parent.meta.csz:
+                count = self._parent.meta.csz
+            count -= recl
+            script.append((0, pbuf, recl))
+            pbuf += recl
+        offset = 0
+        clstrbuf = self._parent.Cluster(self._parent.meta.csz)
+        cchg = False
+        for i in script:
+            if i[0] == 0:
+                clstrbuf.data[offset : offset + i[2]] = str_[i[1] : i[1] + i[2] + 1]
+                clstrbuf.tofile(self._parent.svfs)
+            if i[0] == 1:
+                self._parent.seekclstnmd(
+                    self._parent.svfs, self._parent.meta, self._cchain[i[1]]
+                )
+                offset = i[2]
+                clstrbuf.fromfile(self._parent.svfs)
+                self._parent.seekclstnmd(
+                    self._parent.svfs, self._parent.meta, self._cchain[i[1]]
+                )
+            if i[0] == 2:
+                cchg = True
+                tmp = self._parent.getfreeclstr(
+                    self._parent.meta, self._parent.cmap
+                )
+                if len(self._cchain) != 0:
+                    if (
+                        self._parent.cmap[self._cchain[len(self._cchain) - 1]].val
+                        == 1
+                    ):
+                        self._parent.cmap[
+                            self._cchain[len(self._cchain) - 1]
+                        ].val = (tmp + 2)
+                        self._parent.cmap[tmp].val = 1
+                        chg.append(self._cchain[len(self._cchain) - 1])
+                        chg.append(tmp)
+                        self._cchain.append(tmp)
+                else:
+                    self._parent.cmap[tmp].val = 1
+                    self._cchain.append(tmp)
+                    self._info.fcl = tmp
+                    chg.append(tmp)
+        self._info.ats = time.mktime(datetime.datetime.now().timetuple())
+        self._info.wts = time.mktime(datetime.datetime.now().timetuple())
+        self._info.fsz = fsz
+        index = self._fentry
+        self._parent.seekftbln(self._parent.svfs, index)
+        self._parent.ftbl[index].tofile(self._parent.svfs)
+        if cchg:
+            chg = set(chg)
+            self._parent.updateclustermap(
+                self._parent.svfs, self._parent.meta, self._parent.cmap, chg
+            )
+        self._pos = self._pos + wbufd
+        return 0
+
+    def writelines(self, sequence):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        for i in sequence:
+            if not isinstance(i, (str, bytes, bytearray)):
+                raise ValueError("Sequence of strings or bytes required")
+        for i in sequence:
+            try:
+                self.write(i)
+            except:
+                raise self._parent.SVFSIOError(3, "Write failed")
+        return 0
+
+    def read(self, size=-1):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if self._mode not in (1, 2, 4, 6):
+            raise self._parent.SVFSIOError(2, "File not open for reading")
+        if size == 0:
+            return b""
+        clus = 0
+        fsz = self._info.fsz
+        if size > 0:
+            nfsz = self._pos + size
+            if nfsz > fsz:
+                nfsz = fsz
+            size = nfsz - self._pos
+        if size < 0:
+            size = fsz - self._pos
+        if size <= 0:
+            return b""
+        wbuf = size
+        bfr = bytearray(wbuf)
+        clusi = self._pos // self._parent.meta.csz
+        cluso = self._pos % self._parent.meta.csz
+        script = []
+        script.append((1, clusi, cluso))
+        recl = self._parent.meta.csz - cluso
+        if recl > size:
+            recl = size
+        size -= recl
+        pbuf = 0
+        script.append((0, pbuf, recl))
+        pbuf += recl
+        while size > 0:
+            clus += 1
+            script.append((1, clusi + clus, 0))
+            if size >= self._parent.meta.csz:
+                recl = self._parent.meta.csz
+            elif size < self._parent.meta.csz:
+                recl = fsz % self._parent.meta.csz
+            size -= recl
+            script.append((0, pbuf, recl))
+            pbuf += recl
+        offset = 0
+        clstrbuf = self._parent.Cluster(self._parent.meta.csz)
+        for i in script:
+            if i[0] == 0:
+                clstrbuf.fromfile(self._parent.svfs)
+                bfr[i[1] : i[1] + i[2]] = clstrbuf.data[offset : offset + i[2]]
+            if i[0] == 1:
+                self._parent.seekclstnmd(
+                    self._parent.svfs, self._parent.meta, self._cchain[i[1]]
+                )
+                offset = i[2]
+                clstrbuf.fromfile(self._parent.svfs)
+                self._parent.seekclstnmd(
+                    self._parent.svfs, self._parent.meta, self._cchain[i[1]]
+                )
+        self._info.ats = time.mktime(datetime.datetime.now().timetuple())
+        index = self._fentry
+        self._parent.seekftbln(self._parent.svfs, index)
+        self._parent.ftbl[index].tofile(self._parent.svfs)
+        self._pos = self._pos + wbuf
+        result_bytes = bytes(bfr)
+        if self._encoding is not None:
+            return result_bytes.decode(self._encoding)
+        return result_bytes
+
+    def __iter__(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return self
+
+    def __enter__(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self.close()
+        except:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+
+    def __del__(self):
+        try:
+            self.close()
+        except:
+            pass
+
+    def __next__(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if self._mode not in (1, 2, 4, 6):
+            raise self._parent.SVFSIOError(2, "File not open for reading")
+        while 1:
+            ret = self.readline()
+            if not ret:
+                raise StopIteration
+            else:
+                return ret
+
+    def readline(self, size=-1):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if self._mode not in (1, 2, 4, 6):
+            raise self._parent.SVFSIOError(2, "File not open for reading")
+        if size == 0:
+            return b"" if self._encoding is None else ""
+        # Determine mode: text if encoding is set, else binary.
+        is_text = self._encoding is not None
+        nl = "\n" if is_text else b"\n"
+        cr = "\r" if is_text else b"\r"
+
+        bfr = bytearray() if not is_text else ""
+        tmp = b"" if not is_text else ""
+        chunksize = self._parent.meta.csz
+        if size < 0:
+            size = self._info.fsz - self._pos
+            if size <= 0:
+                return b"" if not is_text else ""
+        wpos = self._pos
+        wcount = size
+        length = 0
+        newl = None
+        end = False
+        while not end:
+            if wcount == 0:
+                break
+            # read in same mode; self.read returns text if encoding set.
+            tmp = self.read(chunksize)
+            if not tmp:
+                break
+            if is_text:
+                pos = tmp.find(nl)
+            else:
+                pos = tmp.find(nl)
+            if pos != -1:
+                if is_text:
+                    bfr += tmp[: pos + 1]
+                else:
+                    bfr += tmp[: pos + 1]
+                length += pos + 1
+                newl = nl
+                end = True
+                break
+            else:
+                if is_text:
+                    bfr += tmp
+                else:
+                    bfr += tmp
+                length += len(tmp)
+                wcount -= len(tmp)
+        self.seek(wpos + length)
+        if self._newlines is None:
+            self._newlines = newl
+        else:
+            if self._newlines is None:
+                self._newlines = newl
+            else:
+                if self._newlines != newl:
+                    if not isinstance(self._newlines, tuple):
+                        self._newlines = (self._newlines,)
+                    if newl not in self._newlines:
+                        self._newlines = self._newlines + (newl,)
+        # Ensure returning a string in text mode
+        if self._encoding is not None and isinstance(bfr, bytes):
+            return bfr.decode(self._encoding)
+        return bfr
+
+    def readlines(self, sizehint=-1):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        if self._mode not in (1, 2, 4, 6):
+            raise self._parent.SVFSIOError(2, "File not open for reading")
+        if sizehint == 0:
+            return []
+        if sizehint < 0:
+            sizehint = self._info.fsz
+        if sizehint == 0:
+            return []
+        length = 0
+        ret = []
+        for i in self:
+            length += len(i)
+            ret.append(i)
+            if length >= sizehint:
+                break
+        # If in text mode, ensure all lines are strings.
+        if self._encoding is not None:
+            ret = [
+                line if isinstance(line, str) else line.decode(self._encoding)
+                for line in ret
+            ]
+        return ret
+
+    def xreadlines(self):
+        if not self._parent.opened:
+            raise self._parent.SVFSError(2, "SVFS is not opened")
+        if self._closed:
+            raise ValueError("I/O operation on closed file")
+        return iter(self)
 
 class SVFS(object):
 
@@ -252,537 +783,6 @@ class SVFS(object):
             else:
                 raise IndexError("Tuple index out of range")
 
-    class SVFSfile(object):
-
-        def __init__(self):
-            self._path = ""
-            self._mode = 0
-            self._pos = 0
-            self._info = None
-            self._cchain = None
-            self._encoding = None
-            self._errors = None
-            self._newlines = None
-            self._softspace = 0
-            self._parent = None
-            self._closed = None
-            self._fentry = None
-
-        def close(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            self._closed = True
-            return 0
-
-        @property
-        def closed(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            return self._closed
-
-        @property
-        def encoding(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            return self._encoding
-
-        @property
-        def errors(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            return self._errors
-
-        @property
-        def name(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            return self._path
-
-        @property
-        def newlines(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            return self._newlines
-
-        @property
-        def softspace(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            return self._softspace
-
-        @softspace.setter
-        def softspace(self, value):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if not isinstance(value, int):
-                raise ValueError("Not an integer")
-            self._softspace = value
-
-        @property
-        def mode(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._mode == 1:
-                return "rb"
-            if self._mode == 2:
-                return "rb+"
-            if self._mode == 3:
-                return "wb"
-            if self._mode == 4:
-                return "wb+"
-            if self._mode == 5:
-                return "ab"
-            if self._mode == 6:
-                return "ab+"
-            self._mode = 1
-            return "rb"
-
-        def truncate(self, size=-1):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if self._mode not in (2, 3, 4, 5, 6):
-                raise self._parent.SVFSIOError(1, "File not open for writing")
-            if size < 0:
-                size = self._pos
-            try:
-                chg = []
-                if self._info.fsz <= size:
-                    return 0
-                count = size // self._parent.meta.csz
-                if size % self._parent.meta.csz > 0:
-                    count += 1
-                cchg = False
-                while len(self._cchain) > count:
-                    cchg = True
-                    if len(self._cchain) > 1:
-                        self._parent.cmap[self._cchain[len(self._cchain) - 1]].val = 0
-                        self._parent.cmap[self._cchain[len(self._cchain) - 2]].val = 1
-                        chg.append(self._cchain[len(self._cchain) - 1])
-                        chg.append(self._cchain[len(self._cchain) - 2])
-                        del self._cchain[len(self._cchain) - 1]
-                    else:
-                        self._parent.cmap[self._cchain[len(self._cchain) - 1]].val = 0
-                        chg.append(self._cchain[len(self._cchain) - 1])
-                        del self._cchain[len(self._cchain) - 1]
-                        self._info.fcl = 0
-                self._info.fsz = size
-                index = self._fentry
-                self._parent.seekftbln(self._parent.svfs, index)
-                self._parent.ftbl[index].tofile(self._parent.svfs)
-                if cchg:
-                    chg = set(chg)
-                    self._parent.updateclustermap(
-                        self._parent.svfs, self._parent.meta, self._parent.cmap, chg
-                    )
-                return 0
-            except:
-                raise RuntimeError("Unknown error")
-
-        def flush(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return 0
-
-        def fileno(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return self._fentry
-
-        def isatty(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return False
-
-        def tell(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return self._pos
-
-        def seek(self, offset, whence=0):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if whence == 0:
-                if offset >= 0:
-                    self._pos = offset
-                    return 0
-                else:
-                    raise self._parent.SVFSIOError(0, "Negative seek offset")
-            elif whence == 1:
-                if self._pos + offset >= 0:
-                    self._pos += offset
-                    return 0
-                else:
-                    raise self._parent.SVFSIOError(0, "Negative seek offset")
-            elif whence == 2:
-                if self._info.fsz + offset >= 0:
-                    self._pos += self._info.fsz + offset
-                    return 0
-                else:
-                    raise self._parent.SVFSIOError(0, "Negative seek offset")
-            raise ValueError("Bad argument")
-
-        def write(self, str_):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if self._mode not in (2, 3, 4, 5, 6):
-                raise self._parent.SVFSIOError(1, "File not open for writing")
-            if self._mode in (5, 6):
-                self._pos = self._info.fsz
-            if isinstance(str_, str):
-                enc = self._encoding if self._encoding is not None else "utf-8"
-                str_ = str_.encode(enc)
-            if not isinstance(str_, (bytes, bytearray)):
-                raise ValueError("Buffer error")
-            chg = []
-            wbuf = len(str_)
-            clus = 0
-            count = wbuf
-            wbufd = count
-            fsz = self._info.fsz
-            nfsz = self._pos + count
-            if nfsz > fsz:
-                fsz = nfsz
-            clusi = self._pos // self._parent.meta.csz
-            cluso = self._pos % self._parent.meta.csz
-            script = []
-            if fsz % self._parent.meta.csz > 0:
-                tmp2 = True
-            else:
-                tmp2 = False
-            if len(self._cchain) < ((fsz // self._parent.meta.csz) + tmp2):
-                stats = self._parent.getsvfsstats(
-                    self._parent.meta, self._parent.ftbl, self._parent.cmap
-                )
-                if stats.clusterfree < (
-                    ((fsz // self._parent.meta.csz) + tmp2) - len(self._cchain)
-                ):
-                    raise self._parent.SVFSError(
-                        9, "Not enough free disk space to perform operation"
-                    )
-                else:
-                    if (len(self._cchain)) > 0:
-                        tmp = ((fsz // self._parent.meta.csz) + tmp2) - (
-                            len(self._cchain)
-                        )
-                    else:
-                        tmp = (fsz // self._parent.meta.csz) + tmp2
-                    while tmp > 0:
-                        tmp -= 1
-                        script.append((2,))
-            script.append((1, clusi, cluso))
-            recl = self._parent.meta.csz - cluso
-            if recl > count:
-                recl = count
-            count -= recl
-            pbuf = 0
-            script.append((0, pbuf, recl))
-            pbuf += recl
-            while count > 0:
-                clus += 1
-                script.append((1, clusi + clus, 0))
-                if count >= self._parent.meta.csz:
-                    recl = self._parent.meta.csz
-                elif count < self._parent.meta.csz:
-                    recl = fsz % self._parent.meta.csz
-                elif count > self._parent.meta.csz:
-                    count = self._parent.meta.csz
-                count -= recl
-                script.append((0, pbuf, recl))
-                pbuf += recl
-            offset = 0
-            clstrbuf = self._parent.Cluster(self._parent.meta.csz)
-            cchg = False
-            for i in script:
-                if i[0] == 0:
-                    clstrbuf.data[offset : offset + i[2]] = str_[i[1] : i[1] + i[2] + 1]
-                    clstrbuf.tofile(self._parent.svfs)
-                if i[0] == 1:
-                    self._parent.seekclstnmd(
-                        self._parent.svfs, self._parent.meta, self._cchain[i[1]]
-                    )
-                    offset = i[2]
-                    clstrbuf.fromfile(self._parent.svfs)
-                    self._parent.seekclstnmd(
-                        self._parent.svfs, self._parent.meta, self._cchain[i[1]]
-                    )
-                if i[0] == 2:
-                    cchg = True
-                    tmp = self._parent.getfreeclstr(
-                        self._parent.meta, self._parent.cmap
-                    )
-                    if len(self._cchain) != 0:
-                        if (
-                            self._parent.cmap[self._cchain[len(self._cchain) - 1]].val
-                            == 1
-                        ):
-                            self._parent.cmap[
-                                self._cchain[len(self._cchain) - 1]
-                            ].val = (tmp + 2)
-                            self._parent.cmap[tmp].val = 1
-                            chg.append(self._cchain[len(self._cchain) - 1])
-                            chg.append(tmp)
-                            self._cchain.append(tmp)
-                    else:
-                        self._parent.cmap[tmp].val = 1
-                        self._cchain.append(tmp)
-                        self._info.fcl = tmp
-                        chg.append(tmp)
-            self._info.ats = time.mktime(datetime.datetime.now().timetuple())
-            self._info.wts = time.mktime(datetime.datetime.now().timetuple())
-            self._info.fsz = fsz
-            index = self._fentry
-            self._parent.seekftbln(self._parent.svfs, index)
-            self._parent.ftbl[index].tofile(self._parent.svfs)
-            if cchg:
-                chg = set(chg)
-                self._parent.updateclustermap(
-                    self._parent.svfs, self._parent.meta, self._parent.cmap, chg
-                )
-            self._pos = self._pos + wbufd
-            return 0
-
-        def writelines(self, sequence):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            for i in sequence:
-                if not isinstance(i, (str, bytes, bytearray)):
-                    raise ValueError("Sequence of strings or bytes required")
-            for i in sequence:
-                try:
-                    self.write(i)
-                except:
-                    raise self._parent.SVFSIOError(3, "Write failed")
-            return 0
-
-        def read(self, size=-1):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if self._mode not in (1, 2, 4, 6):
-                raise self._parent.SVFSIOError(2, "File not open for reading")
-            if size == 0:
-                return b""
-            clus = 0
-            fsz = self._info.fsz
-            if size > 0:
-                nfsz = self._pos + size
-                if nfsz > fsz:
-                    nfsz = fsz
-                size = nfsz - self._pos
-            if size < 0:
-                size = fsz - self._pos
-            if size <= 0:
-                return b""
-            wbuf = size
-            bfr = bytearray(wbuf)
-            clusi = self._pos // self._parent.meta.csz
-            cluso = self._pos % self._parent.meta.csz
-            script = []
-            script.append((1, clusi, cluso))
-            recl = self._parent.meta.csz - cluso
-            if recl > size:
-                recl = size
-            size -= recl
-            pbuf = 0
-            script.append((0, pbuf, recl))
-            pbuf += recl
-            while size > 0:
-                clus += 1
-                script.append((1, clusi + clus, 0))
-                if size >= self._parent.meta.csz:
-                    recl = self._parent.meta.csz
-                elif size < self._parent.meta.csz:
-                    recl = fsz % self._parent.meta.csz
-                size -= recl
-                script.append((0, pbuf, recl))
-                pbuf += recl
-            offset = 0
-            clstrbuf = self._parent.Cluster(self._parent.meta.csz)
-            for i in script:
-                if i[0] == 0:
-                    clstrbuf.fromfile(self._parent.svfs)
-                    bfr[i[1] : i[1] + i[2]] = clstrbuf.data[offset : offset + i[2]]
-                if i[0] == 1:
-                    self._parent.seekclstnmd(
-                        self._parent.svfs, self._parent.meta, self._cchain[i[1]]
-                    )
-                    offset = i[2]
-                    clstrbuf.fromfile(self._parent.svfs)
-                    self._parent.seekclstnmd(
-                        self._parent.svfs, self._parent.meta, self._cchain[i[1]]
-                    )
-            self._info.ats = time.mktime(datetime.datetime.now().timetuple())
-            index = self._fentry
-            self._parent.seekftbln(self._parent.svfs, index)
-            self._parent.ftbl[index].tofile(self._parent.svfs)
-            self._pos = self._pos + wbuf
-            result_bytes = bytes(bfr)
-            if self._encoding is not None:
-                return result_bytes.decode(self._encoding)
-            return result_bytes
-
-        def __iter__(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return self
-
-        def __enter__(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return self
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            try:
-                return self.close()
-            except:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-
-        def __del__(self):
-            try:
-                self.close()
-            except:
-                pass
-
-        def __next__(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if self._mode not in (1, 2, 4, 6):
-                raise self._parent.SVFSIOError(2, "File not open for reading")
-            while 1:
-                ret = self.readline()
-                if not ret:
-                    raise StopIteration
-                else:
-                    return ret
-
-        def readline(self, size=-1):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if self._mode not in (1, 2, 4, 6):
-                raise self._parent.SVFSIOError(2, "File not open for reading")
-            if size == 0:
-                return b"" if self._encoding is None else ""
-            # Determine mode: text if encoding is set, else binary.
-            is_text = self._encoding is not None
-            nl = "\n" if is_text else b"\n"
-            cr = "\r" if is_text else b"\r"
-
-            bfr = bytearray() if not is_text else ""
-            tmp = b"" if not is_text else ""
-            chunksize = self._parent.meta.csz
-            if size < 0:
-                size = self._info.fsz - self._pos
-                if size <= 0:
-                    return b"" if not is_text else ""
-            wpos = self._pos
-            wcount = size
-            length = 0
-            newl = None
-            end = False
-            while not end:
-                if wcount == 0:
-                    break
-                # read in same mode; self.read returns text if encoding set.
-                tmp = self.read(chunksize)
-                if not tmp:
-                    break
-                if is_text:
-                    pos = tmp.find(nl)
-                else:
-                    pos = tmp.find(nl)
-                if pos != -1:
-                    if is_text:
-                        bfr += tmp[: pos + 1]
-                    else:
-                        bfr += tmp[: pos + 1]
-                    length += pos + 1
-                    newl = nl
-                    end = True
-                    break
-                else:
-                    if is_text:
-                        bfr += tmp
-                    else:
-                        bfr += tmp
-                    length += len(tmp)
-                    wcount -= len(tmp)
-            self.seek(wpos + length)
-            if self._newlines is None:
-                self._newlines = newl
-            else:
-                if self._newlines is None:
-                    self._newlines = newl
-                else:
-                    if self._newlines != newl:
-                        if not isinstance(self._newlines, tuple):
-                            self._newlines = (self._newlines,)
-                        if newl not in self._newlines:
-                            self._newlines = self._newlines + (newl,)
-            # Ensure returning a string in text mode
-            if self._encoding is not None and isinstance(bfr, bytes):
-                return bfr.decode(self._encoding)
-            return bfr
-
-        def readlines(self, sizehint=-1):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            if self._mode not in (1, 2, 4, 6):
-                raise self._parent.SVFSIOError(2, "File not open for reading")
-            if sizehint == 0:
-                return []
-            if sizehint < 0:
-                sizehint = self._info.fsz
-            if sizehint == 0:
-                return []
-            length = 0
-            ret = []
-            for i in self:
-                length += len(i)
-                ret.append(i)
-                if length >= sizehint:
-                    break
-            # If in text mode, ensure all lines are strings.
-            if self._encoding is not None:
-                ret = [
-                    line if isinstance(line, str) else line.decode(self._encoding)
-                    for line in ret
-                ]
-            return ret
-
-        def xreadlines(self):
-            if not self._parent.opened:
-                raise self._parent.SVFSError(2, "SVFS is not opened")
-            if self._closed:
-                raise ValueError("I/O operation on closed file")
-            return iter(self)
-
     def __init__(self):
         self.opened = False
         self.svfs = None
@@ -794,6 +794,7 @@ class SVFS(object):
         self.files = []
         self.currev = 1
         self.type = 0
+        self.SVFSfile = SVFSfile
 
     def convert_bytes(self, bytes):
         suffixes = (" bytes", " KB", " MB", " GB", " TB", " PB", " EB", " ZB", " YB")
@@ -2320,19 +2321,26 @@ class EncryptedFile(SVFSfile):
             super().__init__()
 
         def write(self, str_):
+            if not isinstance(str_, bytes):
+                str_ = str_.encode('ascii')
             encrypted_str = self.__fernet.encrypt(str_)
             super().write(encrypted_str)
 
         def read(self, size=-1):
             encrypted_str = super().read(size)
-            return self.__fernet.decrypt(encrypted_str)
+            return self.__fernet.decrypt(encrypted_str).decode('utf-8')
 
 class EncryptedSVFS(SVFS):
     def __init__(self, key):
-        self.__key = key
-        self.__fernet = Fernet(key)
+        self.__key = self._prepare_key(key)
+        self.__fernet = Fernet(self.__key)
         super().__init__()
         self.SVFSfile = EncryptedFile
+
+    def _prepare_key(self, key):
+        if len(key) < 32: raise ValueError("Key must be at least 32 bytes long")
+        encoded_key = base64.b64encode((key[:32]).encode('utf-8'))
+        return encoded_key
 
     def _fopenback(self, path, mode, sf=False, encoding=None):
         # Force default encoding in text mode
