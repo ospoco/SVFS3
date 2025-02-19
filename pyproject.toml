@@ -1,15 +1,43 @@
 [project]
 name = "svfs3"
 version = "3.0.0"
-description = "A port of SVFS version 2 to Python 3"
-readme = "README.md"
-license = "GPL-3.0"
 requires-python = ">=3.9"
 dependencies = [
-    "cryptography>=44.0.1",
+    "cryptography>=44.0.1"
 ]
+description = "Multi-purpose virtual file system inside single file (ported to Python 3)"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [
+  {name = "Andrew Stolberg", email = "andrewstolberg@gmail.com"},
+  {name = "Van Lindberg", email = "van.lindberg@gmail.com"},
+]
+maintainers = [
+  {name = "Van Lindberg", email = "van.lindberg@gmail.com"},
+]
+keywords = ["filesystem", "archiving", "file-system"]
+classifiers = [
+        "Development Status :: 4 - Beta",
+        "Environment :: Other Environment",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: GNU General Public License v3 (GPL-3.0)",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Topic :: System :: Filesystems",
+        ]
+
+[project.urls]
+Homepage = "https://github.com/ospoco/SVFS3"
+Repository = "https://github.com/ospoco/SVFS3.git"
 
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "twine>=6.1.0",
 ]
